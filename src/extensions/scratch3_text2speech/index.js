@@ -1,113 +1,51 @@
-const formatMessage = require('format-message');
-const languageNames = require('scratch-translate-extension-languages');
-
 const ArgumentType = require('../../extension-support/argument-type');
-const BlockType = require('../../extension-support/block-type');
 const Cast = require('../../util/cast');
-const MathUtil = require('../../util/math-util');
-const Clone = require('../../util/clone');
+const BlockType = require('../../extension-support/block-type');
+const formatMessage = require('format-message');
 const log = require('../../util/log');
-const {fetchWithTimeout} = require('../../util/fetch-with-timeout');
+const DiffMatchPatch = require('diff-match-patch');
+
 
 /**
- * Icon svg to be displayed in the blocks category menu, encoded as a data URI.
+ * Url of icon to be displayed at the left edge of each extension block.
  * @type {string}
  */
 // eslint-disable-next-line max-len
-const menuIconURI = 'data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iMjBweCIgaGVpZ2h0PSIyMHB4IiB2aWV3Qm94PSIwIDAgMjAgMjAiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayI+CiAgICA8IS0tIEdlbmVyYXRvcjogU2tldGNoIDUyLjIgKDY3MTQ1KSAtIGh0dHA6Ly93d3cuYm9oZW1pYW5jb2RpbmcuY29tL3NrZXRjaCAtLT4KICAgIDx0aXRsZT5FeHRlbnNpb25zL1NvZnR3YXJlL1RleHQtdG8tU3BlZWNoLU1lbnU8L3RpdGxlPgogICAgPGRlc2M+Q3JlYXRlZCB3aXRoIFNrZXRjaC48L2Rlc2M+CiAgICA8ZyBpZD0iRXh0ZW5zaW9ucy9Tb2Z0d2FyZS9UZXh0LXRvLVNwZWVjaC1NZW51IiBzdHJva2U9Im5vbmUiIHN0cm9rZS13aWR0aD0iMSIgZmlsbD0ibm9uZSIgZmlsbC1ydWxlPSJldmVub2RkIj4KICAgICAgICA8ZyBpZD0idGV4dDJzcGVlY2giIHRyYW5zZm9ybT0idHJhbnNsYXRlKDIuMDAwMDAwLCAyLjAwMDAwMCkiIGZpbGwtcnVsZT0ibm9uemVybyI+CiAgICAgICAgICAgIDxwYXRoIGQ9Ik01Ljc1LDguODM0NjcxNzMgQzUuNzUsOC4zMjY5NjM0NCA1LjAwMzAwNzI3LDguMDQyMjEzNzEgNC41NTYyODAxMiw4LjQ0NDE0OTk5IEwzLjIwNjI4MDEyLDkuNTI1MzU3MDIgQzIuNjk2NzMzNzgsOS45MzM0NDk2OCAyLjAzNzQ4Njc1LDEwLjE2NTg3ODggMS4zNSwxMC4xNjU4Nzg4IEwxLjE1LDEwLjE2NTg3ODggQzAuNjMyNTk2MTY1LDEwLjE2NTg3ODggMC4yNSwxMC41MTA2MDAyIDAuMjUsMTAuOTUyMDM1NSBMMC4yNSwxMy4wNjkzOTkzIEMwLjI1LDEzLjUxMDgzNDYgMC42MzI1OTYxNjUsMTMuODU1NTU2IDEuMTUsMTMuODU1NTU2IEwxLjM1LDEzLjg1NTU1NiBDMi4wNzg3Nzg0MSwxMy44NTU1NTYgMi43MjY4NjE2MSwxNC4wNjY3NjM2IDMuMjU5ODYwNDksMTQuNDk5IEw0LjU1OTIwMTQ3LDE1LjU3OTY2MDggQzUuMDEzMDkyNzYsMTUuOTU0NTM5NiA1Ljc1LDE1LjY3MzYzNDQgNS43NSwxNS4xNDE3MTI4IEw1Ljc1LDguODM0NjcxNzMgWiIgaWQ9InNwZWFrZXIiIHN0cm9rZS1vcGFjaXR5PSIwLjE1IiBzdHJva2U9IiMwMDAwMDAiIHN0cm9rZS13aWR0aD0iMC41IiBmaWxsPSIjNEQ0RDREIj48L3BhdGg+CiAgICAgICAgICAgIDxwYXRoIGQ9Ik0xMC43MDQ4MzEzLDggQzkuNzkwNjc0NjgsOS4xMzExNDg0NyA4LjMwNjYxODQsOS43MTQyODU3MSA3LjgzMzMzMzMzLDkuNzE0Mjg1NzEgQzcuODMzMzMzMzMsOS43MTQyODU3MSA3LjUsOS43MTQyODU3MSA3LjUsOS4zODA5NTIzOCBDNy41LDkuMDg1MjI2ODQgOC4wNjIyMDE2OCw4LjkwMTk0MTY0IDguMTg5MDYwNjcsNy41Njc1NDA1OCBDNi44ODk5Njk5MSw2LjkwNjc5MDA1IDYsNS41NTczMjY4MyA2LDQgQzYsMS43OTA4NjEgNy43OTA4NjEsNC4wNTgxMjI1MWUtMTYgMTAsMCBMMTIsMCBDMTQuMjA5MTM5LC00LjA1ODEyMjUxZS0xNiAxNiwxLjc5MDg2MSAxNiw0IEMxNiw2LjIwOTEzOSAxNC4yMDkxMzksOCAxMiw4IEwxMC43MDQ4MzEzLDggWiIgaWQ9InNwZWVjaCIgZmlsbD0iIzBFQkQ4QyI+PC9wYXRoPgogICAgICAgIDwvZz4KICAgIDwvZz4KPC9zdmc+';
+const iconURI = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSIjRkZGRkZGIj48cGF0aCBkPSJNMTIgMTRjMS42NiAwIDIuOTktMS4zNCAyLjk5LTNMMTUgNWMwLTEuNjYtMS4zNC0zLTMtM1M5IDMuMzQgOSA1djZjMCAxLjY2IDEuMzQgMyAzIDN6bTUuMy0zYzAgMy0yLjU0IDUuMS01LjMgNS4xUzYuNyAxNCA2LjcgMTFINWMwIDMuNDEgMi43MiA2LjIzIDYgNi43MlYyMWgydi0zLjI4YzMuMjgtLjQ4IDYtMy4zIDYtNi43MmgtMS43eiIvPjxwYXRoIGQ9Ik0wIDBoMjR2MjRIMHoiIGZpbGw9Im5vbmUiLz48L3N2Zz4K';
+
 
 /**
- * Icon svg to be displayed at the left edge of each extension block, encoded as a data URI.
+ * Url of icon to be displayed in the toolbox menu for the extension category.
  * @type {string}
  */
 // eslint-disable-next-line max-len
-const blockIconURI = 'data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB3aWR0aD0iNDBweCIgaGVpZ2h0PSI0MHB4IiB2aWV3Qm94PSIwIDAgNDAgNDAiIHZlcnNpb249IjEuMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayI+CiAgICA8IS0tIEdlbmVyYXRvcjogU2tldGNoIDUyLjIgKDY3MTQ1KSAtIGh0dHA6Ly93d3cuYm9oZW1pYW5jb2RpbmcuY29tL3NrZXRjaCAtLT4KICAgIDx0aXRsZT5FeHRlbnNpb25zL1NvZnR3YXJlL1RleHQtdG8tU3BlZWNoLUJsb2NrPC90aXRsZT4KICAgIDxkZXNjPkNyZWF0ZWQgd2l0aCBTa2V0Y2guPC9kZXNjPgogICAgPGcgaWQ9IkV4dGVuc2lvbnMvU29mdHdhcmUvVGV4dC10by1TcGVlY2gtQmxvY2siIHN0cm9rZT0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIxIiBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHN0cm9rZS1vcGFjaXR5PSIwLjE1Ij4KICAgICAgICA8ZyBpZD0idGV4dDJzcGVlY2giIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQuMDAwMDAwLCA0LjAwMDAwMCkiIGZpbGwtcnVsZT0ibm9uemVybyIgc3Ryb2tlPSIjMDAwMDAwIj4KICAgICAgICAgICAgPHBhdGggZD0iTTExLjUsMTcuNjY5MzQzNSBDMTEuNSwxNi42NTM5MjY5IDEwLjAwNjAxNDUsMTYuMDg0NDI3NCA5LjExMjU2MDI0LDE2Ljg4ODMgTDYuNDEyNTYwMjQsMTkuMDUwNzE0IEM1LjM5MzQ2NzU1LDE5Ljg2Njg5OTQgNC4wNzQ5NzM1MSwyMC4zMzE3NTc1IDIuNywyMC4zMzE3NTc1IEwyLjMsMjAuMzMxNzU3NSBDMS4yNjUxOTIzMywyMC4zMzE3NTc1IDAuNSwyMS4wMjEyMDAzIDAuNSwyMS45MDQwNzEgTDAuNSwyNi4xMzg3OTg2IEMwLjUsMjcuMDIxNjY5MyAxLjI2NTE5MjMzLDI3LjcxMTExMiAyLjMsMjcuNzExMTEyIEwyLjcsMjcuNzExMTEyIEM0LjE1NzU1NjgyLDI3LjcxMTExMiA1LjQ1MzcyMzIyLDI4LjEzMzUyNzEgNi41MTk3MjA5OCwyOC45OTggTDkuMTE4NDAyOTMsMzEuMTU5MzIxNiBDMTAuMDI2MTg1NSwzMS45MDkwNzkzIDExLjUsMzEuMzQ3MjY4OSAxMS41LDMwLjI4MzQyNTUgTDExLjUsMTcuNjY5MzQzNSBaIiBpZD0ic3BlYWtlciIgZmlsbD0iIzRENEQ0RCI+PC9wYXRoPgogICAgICAgICAgICA8cGF0aCBkPSJNMjEuNjQzNjA2NiwxNi41IEMxOS45NzcwMDk5LDE4LjQzNzAyMzQgMTcuMTA1MDI3NSwxOS45Mjg1NzE0IDE1LjY2NjY2NjcsMTkuOTI4NTcxNCBDMTUuNTEyNjM5NywxOS45Mjg1NzE0IDE1LjMxNjYyOTIsMTkuODk1OTAzIDE1LjEwOTcyNjUsMTkuNzkyNDUxNyBDMTQuNzM3NjAzOSwxOS42MDYzOTA0IDE0LjUsMTkuMjQ5OTg0NiAxNC41LDE4Ljc2MTkwNDggQzE0LjUsMTguNjU2ODA0MSAxNC41MTcwNTU1LDE4LjU1NDUwNzYgMTQuNTQ5NDQ2NywxOC40NTQwODQ0IEMxNC42MjU3NTQ1LDE4LjIxNzUwNjMgMTUuMTczNTcyMSwxNy40Njc1MzEgMTUuMjc3MjA3MSwxNy4yODA5ODgxIEMxNS41NDYzNTI2LDE2Ljc5NjUyNjEgMTUuNzM5MDI1LDE2LjIwNjM1NjEgMTUuODQzMjg5MSwxNS40MTYwMDM0IEMxMy4xODk3MDA1LDEzLjkyNjgzNjkgMTEuNSwxMS4xMTM5NjY4IDExLjUsOCBDMTEuNSwzLjMwNTU3OTYzIDE1LjMwNTU3OTYsLTAuNSAyMCwtMC41IEwyNCwtMC41IEMyOC42OTQ0MjA0LC0wLjUgMzIuNSwzLjMwNTU3OTYzIDMyLjUsOCBDMzIuNSwxMi42OTQ0MjA0IDI4LjY5NDQyMDQsMTYuNSAyNCwxNi41IEwyMS42NDM2MDY2LDE2LjUgWiIgaWQ9InNwZWVjaCIgZmlsbD0iI0ZGRkZGRiI+PC9wYXRoPgogICAgICAgIDwvZz4KICAgIDwvZz4KPC9zdmc+';
+const menuIconURI = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNHB4IiBoZWlnaHQ9IjI0cHgiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzc1NzU3NSI+CiAgICA8cGF0aCBkPSJNMTIgMTRjMS42NiAwIDIuOTktMS4zNCAyLjk5LTNMMTUgNWMwLTEuNjYtMS4zNC0zLTMtM1M5IDMuMzQgOSA1djZjMCAxLjY2IDEuMzQgMyAzIDN6bTUuMy0zYzAgMy0yLjU0IDUuMS01LjMgNS4xUzYuNyAxNCA2LjcgMTFINWMwIDMuNDEgMi43MiA2LjIzIDYgNi43MlYyMWgydi0zLjI4YzMuMjgtLjQ4IDYtMy4zIDYtNi43MmgtMS43eiIvPgogICAgPHBhdGggZD0iTTAgMGgyNHYyNEgweiIgZmlsbD0ibm9uZSIvPgo8L3N2Zz4K';
+
 
 /**
- * The url of the synthesis server.
+ * The url of the speech server.
  * @type {string}
  */
-const SERVER_HOST = 'https://synthesis-service.scratch.mit.edu';
+const serverURL = 'wss://speech.scratch.mit.edu';
 
 /**
- * How long to wait in ms before timing out requests to synthesis server.
+ * The amount of time to wait between when we stop sending speech data to the server and when
+ * we expect the transcription result marked with isFinal: true to come back from the server.
  * @type {int}
  */
-const SERVER_TIMEOUT = 10000; // 10 seconds
+const finalResponseTimeoutDurationMs = 3000;
 
 /**
- * Volume for playback of speech sounds, as a percentage.
- * @type {number}
+ * The max amount of time the Listen And Wait block will listen for.  It may listen for less time
+ * if we get back results that are good and think the user is done talking.
+ * Currently set to 10sec. This should not exceed the speech api limit (60sec) without redoing how
+ * we stream the microphone data data.
+ * @type {int}
  */
-const SPEECH_VOLUME = 250;
+const listenAndWaitBlockTimeoutMs = 10000;
 
-/**
- * An id for one of the voices.
- */
-const ALTO_ID = 'ALTO';
 
-/**
- * An id for one of the voices.
- */
-const TENOR_ID = 'TENOR';
-
-/**
- * An id for one of the voices.
- */
-const SQUEAK_ID = 'SQUEAK';
-
-/**
- * An id for one of the voices.
- */
-const GIANT_ID = 'GIANT';
-
-/**
- * An id for one of the voices.
- */
-const KITTEN_ID = 'KITTEN';
-
-/**
- * Playback rate for the tenor voice, for cases where we have only a female gender voice.
- */
-const FEMALE_TENOR_RATE = 0.89; // -2 semitones
-
-/**
- * Playback rate for the giant voice, for cases where we have only a female gender voice.
- */
-const FEMALE_GIANT_RATE = 0.79; // -4 semitones
-
-/**
- * Language ids. The value for each language id is a valid Scratch locale.
- */
-const ARABIC_ID = 'ar';
-const CHINESE_ID = 'zh-cn';
-const DANISH_ID = 'da';
-const DUTCH_ID = 'nl';
-const ENGLISH_ID = 'en';
-const FRENCH_ID = 'fr';
-const GERMAN_ID = 'de';
-const HINDI_ID = 'hi';
-const ICELANDIC_ID = 'is';
-const ITALIAN_ID = 'it';
-const JAPANESE_ID = 'ja';
-const KOREAN_ID = 'ko';
-const NORWEGIAN_ID = 'nb';
-const POLISH_ID = 'pl';
-const PORTUGUESE_BR_ID = 'pt-br';
-const PORTUGUESE_ID = 'pt';
-const ROMANIAN_ID = 'ro';
-const RUSSIAN_ID = 'ru';
-const SPANISH_ID = 'es';
-const SPANISH_419_ID = 'es-419';
-const SWEDISH_ID = 'sv';
-const TURKISH_ID = 'tr';
-const WELSH_ID = 'cy';
-
-/**
- * Class for the text2speech blocks.
- * @constructor
- */
-class Scratch3Text2SpeechBlocks {
+class Scratch3Speech2TextBlocks {
     constructor (runtime) {
         /**
          * The runtime instantiating this block package.
@@ -116,651 +54,648 @@ class Scratch3Text2SpeechBlocks {
         this.runtime = runtime;
 
         /**
-         * Map of soundPlayers by sound id.
-         * @type {Map<string, SoundPlayer>}
+         * An array of phrases from the [when I hear] hat blocks.
+         * The list of phrases in the when I hear hat blocks.  This list is sent
+         * to the speech api to seed the recognition engine and for deciding
+         * whether the transcription results match.
+         * @type {Array}
+         * @private
          */
-        this._soundPlayers = new Map();
-
-        this._stopAllSpeech = this._stopAllSpeech.bind(this);
-        if (this.runtime) {
-            this.runtime.on('PROJECT_STOP_ALL', this._stopAllSpeech);
-        }
-
-        this._onTargetCreated = this._onTargetCreated.bind(this);
-        if (this.runtime) {
-            runtime.on('targetWasCreated', this._onTargetCreated);
-        }
+        this._phraseList = [];
 
         /**
-         * A list of all Scratch locales that are supported by the extension.
-         * @type {Array}
+         * The most recent transcription result received from the speech API that we decided to keep.
+         * This is the value returned by the reporter block.
+         * @type {String}
+         * @private
          */
-        this._supportedLocales = this._getSupportedLocales();
+        this._currentUtterance = '';
+
+        /**
+         *  Similar to _currentUtterance, but set back to '' at the beginning of listening block
+         *  and on green flag.
+         *  Used to get the hat blocks to edge trigger.  In order to detect someone saying
+         *  the same thing twice in two subsequent listen and wait blocks
+         *  and still trigger the hat, we need this to go from
+         *  '' at the beginning of the listen block to '<transcription value>' at the end.
+         * @type {string}
+         * @private
+         */
+        this._utteranceForEdgeTrigger = null;
+
+        /**
+         * The list of queued `resolve` callbacks for 'Listen and Wait' blocks.
+         * We only listen to for one utterance at a time.  We may encounter multiple
+         * 'Listen and wait' blocks that tell us to start listening. If one starts
+         * and hasn't receieved results back yet, when we encounter more, any further ones
+         * will all resolve when we get the next acceptable transcription result back.
+         * @type {!Array}
+         * @private
+         */
+        this._speechPromises = [];
+
+        /**
+         * The id of the timeout that will run if we start listening and don't get any
+         * transcription results back. e.g. because we didn't hear anything.
+         * @type {number}
+         * @private
+         */
+        this._speechTimeoutId = null;
+
+        /**
+         * The id of the timeout that will run to wait for after we're done listening but
+         * are still waiting for a potential isFinal:true transcription result to come back.
+         * @type {number}
+         * @private
+         */
+        this._speechFinalResponseTimeout = null;
+
+        /**
+         * The ScriptProcessorNode hooked up to the audio context.
+         * @type {ScriptProcessorNode}
+         * @private
+         */
+        this._scriptNode = null;
+
+        /**
+         * The socket used to communicate with the speech server to send microphone data
+         * and recieve transcription results.
+         * @type {WebSocket}
+         * @private
+         */
+        this._socket = null;
+
+        /**
+         * The AudioContext used to manage the microphone.
+         * @type {AudioContext}
+         * @private
+         */
+        this._context = null;
+
+        /**
+         * MediaStreamAudioSourceNode to handle microphone data.
+         * @type {MediaStreamAudioSourceNode}
+         * @private
+         */
+        this._sourceNode = null;
+
+        /**
+         * A Promise whose fulfillment handler receives a MediaStream object when the microphone has been obtained.
+         * @type {Promise}
+         * @private
+         */
+        this._audioPromise = null;
+
+
+        /**
+         * Diff Match Patch is used to do some fuzzy matching of the transcription results
+         * with what is in the hat blocks.
+         */
+        this._dmp = new DiffMatchPatch();
+        // Threshold for diff match patch to use: (0.0 = perfection, 1.0 = very loose).
+        this._dmp.Match_Threshold = 0.3;
+
+        this._newSocketCallback = this._newSocketCallback.bind(this);
+        this._setupSocketCallback = this._setupSocketCallback.bind(this);
+        this._socketMessageCallback = this._socketMessageCallback.bind(this);
+        this._processAudioCallback = this._processAudioCallback.bind(this);
+        this._onTranscriptionFromServer = this._onTranscriptionFromServer.bind(this);
+        this._resetListening = this._resetListening.bind(this);
+        this._stopTranscription = this._stopTranscription.bind(this);
+
+
+        this.runtime.on('PROJECT_STOP_ALL', this._resetListening.bind(this));
+        this.runtime.on('PROJECT_START', this._resetEdgeTriggerUtterance.bind(this));
+
     }
 
     /**
-     * An object with info for each voice.
+     * Scans all the 'When I hear' hat blocks for each sprite and pulls out the text.  The list
+     * is sent off to the speech recognition server as hints.  This *only* reads the value out of
+     * the hat block shadow.  If a block is dropped on top of the shadow, it is skipped.
+     * @returns {Array} list of strings from the hat blocks in the project.
+     * @private
      */
-    get VOICE_INFO () {
-        return {
-            [ALTO_ID]: {
-                name: formatMessage({
-                    id: 'text2speech.alto',
-                    default: 'alto',
-                    description: 'Name for a voice with ambiguous gender.'
-                }),
-                gender: 'female',
-                playbackRate: 1
-            },
-            [TENOR_ID]: {
-                name: formatMessage({
-                    id: 'text2speech.tenor',
-                    default: 'tenor',
-                    description: 'Name for a voice with ambiguous gender.'
-                }),
-                gender: 'male',
-                playbackRate: 1
-            },
-            [SQUEAK_ID]: {
-                name: formatMessage({
-                    id: 'text2speech.squeak',
-                    default: 'squeak',
-                    description: 'Name for a funny voice with a high pitch.'
-                }),
-                gender: 'female',
-                playbackRate: 1.19 // +3 semitones
-            },
-            [GIANT_ID]: {
-                name: formatMessage({
-                    id: 'text2speech.giant',
-                    default: 'giant',
-                    description: 'Name for a funny voice with a low pitch.'
-                }),
-                gender: 'male',
-                playbackRate: 0.84 // -3 semitones
-            },
-            [KITTEN_ID]: {
-                name: formatMessage({
-                    id: 'text2speech.kitten',
-                    default: 'kitten',
-                    description: 'A baby cat.'
-                }),
-                gender: 'female',
-                playbackRate: 1.41 // +6 semitones
-            }
-        };
+    _scanBlocksForPhraseList () {
+        const words = [];
+        // For each each target, walk through the top level blocks and check whether
+        // they are speech hat/when I hear blocks.
+        this.runtime.targets.forEach(target => {
+            target.blocks._scripts.forEach(id => {
+                const b = target.blocks.getBlock(id);
+                if (b.opcode === 'speech_whenIHearHat') {
+                    // Grab the text from the hat block's shadow.
+                    const inputId = b.inputs.PHRASE.block;
+                    const inputBlock = target.blocks.getBlock(inputId);
+                    // Only grab the value from text blocks. This means we'll
+                    // miss some. e.g. values in variables or other reporters.
+                    if (inputBlock.opcode === 'text') {
+                        const word = target.blocks.getBlock(inputId).fields.TEXT.value;
+                        words.push(word);
+                    }
+                }
+            });
+        });
+        return words;
     }
 
     /**
-     * An object with information for each language.
+     * Get the viewer's language code.
+     * @return {string} the language code.
+     */
+    _getViewerLanguageCode () {
+        return formatMessage.setup().locale || navigator.language || navigator.userLanguage || 'en-US';
+    }
+
+    /**
+     * Resets all things related to listening. Called on Red Stop sign button.
+     *   - suspends audio processing
+     *   - closes socket with speech socket server
+     *   - clears out any remaining speech blocks that are waiting.
+     * @private.
+     */
+    _resetListening () {
+        this.runtime.emitMicListening(false);
+        this._stopListening();
+        this._closeWebsocket();
+        this._resolveSpeechPromises();
+    }
+
+    /**
+     * Reset the utterance we look for in the when I hear hat block back to
+     * the empty string.
+     * @private
+     */
+    _resetEdgeTriggerUtterance () {
+        this._utteranceForEdgeTrigger = '';
+    }
+
+    /**
+     * Close the connection to the socket server if it is open.
+     * @private
+     */
+    _closeWebsocket () {
+        if (this._socket && this._socket.readyState === this._socket.OPEN) {
+            this._socket.close();
+        }
+    }
+
+    /**
+     * Call to suspend getting data from the microphone.
+     * @private
+     */
+    _stopListening () {
+        // Note that this can be called before any Listen And Wait block did setup,
+        // so check that things exist before disconnecting them.
+        if (this._context) {
+            this._context.suspend.bind(this._context);
+        }
+        // This is called on green flag to reset things that may never have existed
+        // in the first place. Do a bunch of checks.
+        if (this._scriptNode) {
+            this._scriptNode.removeEventListener('audioprocess', this._processAudioCallback);
+            this._scriptNode.disconnect();
+        }
+        if (this._sourceNode) {
+            this._sourceNode.disconnect();
+        }
+    }
+
+    /**
+     * Resolves all the speech promises we've accumulated so far and empties out the list.
+     * @private
+     */
+    _resolveSpeechPromises () {
+        for (let i = 0; i < this._speechPromises.length; i++) {
+            const resFn = this._speechPromises[i];
+            resFn();
+        }
+        this._speechPromises = [];
+    }
+
+    /**
+     * Called when we want to stop listening (e.g. when a listen block times out)
+     * but we still want to wait a little to see if we get any transcription results
+     * back before yielding the block execution.
+     * @private
+     */
+    _stopTranscription () {
+        this._stopListening();
+        if (this._socket && this._socket.readyState === this._socket.OPEN) {
+            this._socket.send('stopTranscription');
+        }
+        // Give it a couple seconds to response before giving up and assuming nothing else will come back.
+        this._speechFinalResponseTimeout = setTimeout(this._resetListening, finalResponseTimeoutDurationMs);
+    }
+
+    /**
+     * Decides whether to keep a given transcirption result.
+     * @param {number} fuzzyMatchIndex Index of the fuzzy match or -1 if there is no match.
+     * @param {object} result The json object representing the transcription result.
+     * @param {string} normalizedTranscript The transcription text used for matching (i.e. lowercased, no punctuation).
+     * @returns {boolean} true If a result is good enough to be kept.
+     * @private
+     */
+    _shouldKeepResult (fuzzyMatchIndex, result, normalizedTranscript) {
+        // The threshold above which we decide transcription results are unlikely to change again.
+        // See https://cloud.google.com/speech-to-text/docs/basics#streaming_responses.
+        const stabilityThreshold = .85;
+
+        // For responsiveness of the When I Hear hat blocks, sometimes we want to keep results that are not
+        // yet marked 'isFinal' by the speech api.  Here are some signals we use.
+
+        // If the result from the speech api isn't very stable and we only had a fuzzy match, we don't want to use it.
+        const shouldKeepFuzzyMatch = fuzzyMatchIndex !== -1 && result.stability > stabilityThreshold;
+
+        // TODO: This is for debugging. Remove when this function is finalized.
+        if (shouldKeepFuzzyMatch) {
+            log.info(`Fuzzy match with high stability.`);
+            log.info(`match index is  ${fuzzyMatchIndex}`);
+            const phrases = this._phraseList.join(' ');
+            const matchPhrase = phrases.substring(fuzzyMatchIndex, fuzzyMatchIndex + normalizedTranscript.length);
+            log.info(`fuzzy match: ${matchPhrase} in ${normalizedTranscript}`);
+        }
+
+        // If the result is in the phraseList (i.e. it matches one of the 'When I Hear' blocks), we keep it.
+        // This might be aggressive... but so far seems to be a good thing.
+        const shouldKeepPhraseListMatch = this._phraseList.includes(normalizedTranscript);
+        // TODO: This is just for debugging. Remove when this function is finalized.
+        if (shouldKeepPhraseListMatch) {
+            log.info(`phrase list ${this._phraseList} includes ${normalizedTranscript}`);
+        }
+        // TODO: This is for debugging. Remove when this function is finalized.
+        if (result.isFinal) {
+            log.info(`result is final`);
+        }
+
+        if (!result.isFinal && !shouldKeepPhraseListMatch && !shouldKeepFuzzyMatch) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Normalizes text a bit to facilitate matching.  Lowercases, removes some punctuation and whitespace.
+     * @param {string} text The text to normalzie
+     * @returns {string} The normalized text.
+     * @private
+     */
+    _normalizeText (text) {
+        text = Cast.toString(text).toLowerCase();
+        text = text.replace(/[.?!]/g, '');
+        text = text.trim();
+        return text;
+    }
+
+    /**
+     * Call into diff match patch library to compute whether there is a fuzzy match.
+     * @param {string} text The text to search in.
+     * @param {string} pattern The pattern to look for in text.
+     * @returns {number} The index of the match or -1 if there isn't one.
+     */
+    _computeFuzzyMatch (text, pattern) {
+        // Don't bother matching if any are null.
+        if (!pattern || !text) {
+            return -1;
+        }
+        let match = -1;
+        try {
+            // Look for the text in the pattern starting at position 0.
+            match = this._dmp.match_main(text, pattern, 0);
+        } catch (e) {
+            // This can happen inf the text or pattern gets too long.  If so just substring match.
+            return pattern.indexOf(text);
+        }
+        return match;
+    }
+
+    /**
+     * Processes the results we get back from the speech server.  Decides whether the results
+     * are good enough to keep. If they are, resolves the 'Listen and Wait' blocks promise and cleans up.
+     * @param {object} result The transcription result.
+     * @private
+     */
+    _processTranscriptionResult (result) {
+        log.info(`Got result: ${JSON.stringify(result)}`);
+        const transcriptionResult = this._normalizeText(result.alternatives[0].transcript);
+
+        // Waiting for an exact match is not satisfying.  It makes it hard to catch
+        // things like homonyms or things that sound similar "let us" vs "lettuce".  Using the fuzzy matching helps
+        // more aggressively match the phrases that are in the "When I hear" hat blocks.
+        const phrases = this._phraseList.join(' ');
+        const fuzzyMatchIndex = this._computeFuzzyMatch(phrases, transcriptionResult);
+
+        // If the result isn't good enough yet, return without saving and resolving the promises.
+        if (!this._shouldKeepResult(fuzzyMatchIndex, result, transcriptionResult)) {
+            return;
+        }
+
+        this._currentUtterance = transcriptionResult;
+        log.info(`Keeing result: ${this._currentUtterance}`);
+        this._utteranceForEdgeTrigger = transcriptionResult;
+
+        // We're done listening so resolove all the promises and reset everying so we're ready for next time.
+        this._resetListening();
+
+        // We got results so clear out the timeouts.
+        if (this._speechTimeoutId) {
+            clearTimeout(this._speechTimeoutId);
+            this._speechTimeoutId = null;
+        }
+        if (this._speechFinalResponseTimeout) {
+            clearTimeout(this._speechFinalResponseTimeout);
+            this._speechFinalResponseTimeout = null;
+        }
+    }
+
+    /**
+     * Handle a message from the socket. It contains transcription results.
+     * @param {MessageEvent} e The message event containing data from speech server.
+     * @private
+     */
+    _onTranscriptionFromServer (e) {
+        let result = null;
+        try {
+            result = JSON.parse(e.data);
+        } catch (ex) {
+            log.error(`Problem parsing json. continuing: ${ex}`);
+            // TODO: Question - Should we kill listening and continue?
+            return;
+        }
+        this._processTranscriptionResult(result);
+    }
+
+
+    /**
+     * Decide whether the pattern given matches the text. Uses fuzzy matching
+     * @param {string} pattern The pattern to look for.  Usually this is the transcription result
+     * @param {string} text The text to look in. Usually this is the set of phrases from the when I hear blocks
+     * @returns {boolean} true if there is a fuzzy match.
+     * @private
+     */
+    _speechMatches (pattern, text) {
+        pattern = this._normalizeText(pattern);
+        text = this._normalizeText(text);
+        const match = this._computeFuzzyMatch(text, pattern);
+        return match !== -1;
+    }
+
+    /**
+     * Kick off the listening process.
+     * @private
+     */
+    _startListening () {
+        this.runtime.emitMicListening(true);
+        this._initListening();
+        // Force the block to timeout if we don't get any results back/the user didn't say anything.
+        this._speechTimeoutId = setTimeout(this._stopTranscription, listenAndWaitBlockTimeoutMs);
+    }
+
+    /**
+     * Resume listening for audio and re-open the socket to send data.
+     * @private
+     */
+    _resumeListening () {
+        this._context.resume.bind(this._context);
+        this._newWebsocket();
+    }
+
+    /**
+     * Does all setup to get microphone data and initializes the web socket.
+     * that data to the speech server.
+     * @private
+     */
+    _initListening () {
+        this._initializeMicrophone();
+        this._initScriptNode();
+        this._newWebsocket();
+    }
+
+    /**
+     * Initialize the audio context and connect the microphone.
+     * @private
+     */
+    _initializeMicrophone () {
+        // Don't make a new context if we already made one.
+        if (!this._context) {
+            // Safari still needs a webkit prefix for audio context
+            this._context = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        // In safari we have to call getUserMedia every time we want to listen. Other browsers allow
+        // you to reuse the mediaStream.  See #1202 for more context.
+        this._audioPromise = navigator.mediaDevices.getUserMedia({
+            audio: true
+        });
+
+        this._audioPromise.then().catch(e => {
+            log.error(`Problem connecting to microphone:  ${e}`);
+        });
+    }
+
+    /**
+     * Sets up the script processor and the web socket.
+     * @private
      *
-     * A note on the different sets of locales referred to in this extension:
-     *
-     * SCRATCH LOCALE
-     *      Set by the editor, and used to store the language state in the project.
-     *      Listed in l10n: https://github.com/scratchfoundation/scratch-l10n/blob/master/src/supported-locales.js
-     * SUPPORTED LOCALE
-     *      A Scratch locale that has a corresponding extension locale.
-     * EXTENSION LOCALE
-     *      A locale corresponding to one of the available spoken languages
-     *      in the extension. There can be multiple supported locales for a single
-     *      extension locale. For example, for both written versions of chinese,
-     *      zh-cn and zh-tw, we use a single spoken language (Mandarin). So there
-     *      are two supported locales, with a single extension locale.
-     * SPEECH SYNTH LOCALE
-     *      A different locale code system, used by our speech synthesis service.
-     *      Each extension locale has a speech synth locale.
      */
-    get LANGUAGE_INFO () {
-        return {
-            [ARABIC_ID]: {
-                name: 'Arabic',
-                locales: ['ar'],
-                speechSynthLocale: 'arb',
-                singleGender: true
-            },
-            [CHINESE_ID]: {
-                name: 'Chinese (Mandarin)',
-                locales: ['zh-cn', 'zh-tw'],
-                speechSynthLocale: 'cmn-CN',
-                singleGender: true
-            },
-            [DANISH_ID]: {
-                name: 'Danish',
-                locales: ['da'],
-                speechSynthLocale: 'da-DK'
-            },
-            [DUTCH_ID]: {
-                name: 'Dutch',
-                locales: ['nl'],
-                speechSynthLocale: 'nl-NL'
-            },
-            [ENGLISH_ID]: {
-                name: 'English',
-                locales: ['en'],
-                speechSynthLocale: 'en-US'
-            },
-            [FRENCH_ID]: {
-                name: 'French',
-                locales: ['fr'],
-                speechSynthLocale: 'fr-FR'
-            },
-            [GERMAN_ID]: {
-                name: 'German',
-                locales: ['de'],
-                speechSynthLocale: 'de-DE'
-            },
-            [HINDI_ID]: {
-                name: 'Hindi',
-                locales: ['hi'],
-                speechSynthLocale: 'hi-IN',
-                singleGender: true
-            },
-            [ICELANDIC_ID]: {
-                name: 'Icelandic',
-                locales: ['is'],
-                speechSynthLocale: 'is-IS'
-            },
-            [ITALIAN_ID]: {
-                name: 'Italian',
-                locales: ['it'],
-                speechSynthLocale: 'it-IT'
-            },
-            [JAPANESE_ID]: {
-                name: 'Japanese',
-                locales: ['ja', 'ja-hira'],
-                speechSynthLocale: 'ja-JP'
-            },
-            [KOREAN_ID]: {
-                name: 'Korean',
-                locales: ['ko'],
-                speechSynthLocale: 'ko-KR',
-                singleGender: true
-            },
-            [NORWEGIAN_ID]: {
-                name: 'Norwegian',
-                locales: ['nb', 'nn'],
-                speechSynthLocale: 'nb-NO',
-                singleGender: true
-            },
-            [POLISH_ID]: {
-                name: 'Polish',
-                locales: ['pl'],
-                speechSynthLocale: 'pl-PL'
-            },
-            [PORTUGUESE_BR_ID]: {
-                name: 'Portuguese (Brazilian)',
-                locales: ['pt-br'],
-                speechSynthLocale: 'pt-BR'
-            },
-            [PORTUGUESE_ID]: {
-                name: 'Portuguese (European)',
-                locales: ['pt'],
-                speechSynthLocale: 'pt-PT'
-            },
-            [ROMANIAN_ID]: {
-                name: 'Romanian',
-                locales: ['ro'],
-                speechSynthLocale: 'ro-RO',
-                singleGender: true
-            },
-            [RUSSIAN_ID]: {
-                name: 'Russian',
-                locales: ['ru'],
-                speechSynthLocale: 'ru-RU'
-            },
-            [SPANISH_ID]: {
-                name: 'Spanish (European)',
-                locales: ['es'],
-                speechSynthLocale: 'es-ES'
-            },
-            [SPANISH_419_ID]: {
-                name: 'Spanish (Latin American)',
-                locales: ['es-419'],
-                speechSynthLocale: 'es-US'
-            },
-            [SWEDISH_ID]: {
-                name: 'Swedish',
-                locales: ['sv'],
-                speechSynthLocale: 'sv-SE',
-                singleGender: true
-            },
-            [TURKISH_ID]: {
-                name: 'Turkish',
-                locales: ['tr'],
-                speechSynthLocale: 'tr-TR',
-                singleGender: true
-            },
-            [WELSH_ID]: {
-                name: 'Welsh',
-                locales: ['cy'],
-                speechSynthLocale: 'cy-GB',
-                singleGender: true
+    _initScriptNode () {
+        // Create a node that sends raw bytes across the websocket
+        this._scriptNode = this._context.createScriptProcessor(4096, 1, 1);
+    }
+
+    /**
+     * Callback called when it is time to setup the new web socket.
+     * @param {Function} resolve - function to call when the web socket opens succesfully.
+     * @param {Function} reject - function to call if opening the web socket fails.
+     */
+    _newSocketCallback (resolve, reject) {
+        this._socket = new WebSocket(serverURL);
+        this._socket.addEventListener('open', resolve);
+        this._socket.addEventListener('error', reject);
+    }
+
+    /**
+     * Callback called once we've initially established the web socket is open and working.
+     * Sets up the callback for subsequent messages (i.e. transcription results)  and
+     * connects to the script node to get data.
+     * @private
+     */
+    _socketMessageCallback () {
+        this._socket.addEventListener('message', this._onTranscriptionFromServer);
+        this._startByteStream();
+    }
+
+    /**
+     * Sets up callback for when socket and audio are initialized.
+     * @private
+     */
+    _newWebsocket () {
+        const websocketPromise = new Promise(this._newSocketCallback);
+        Promise.all([this._audioPromise, websocketPromise]).then(
+            this._setupSocketCallback)
+            .catch(e => {
+                log.error(`Problem with setup:  ${e}`);
+            });
+    }
+
+    /**
+     * Callback to handle initial setting up of a socket.
+     * Currently we send a setup message (only contains sample rate) but might
+     * be useful to send more data so we can do quota stuff.
+     * @param {Array} values The
+     */
+    _setupSocketCallback (values) {
+        this._micStream = values[0];
+        this._socket = values[1].target;
+
+        this._socket.addEventListener('error', e => {
+            log.error(`Error from web socket: ${e}`);
+        });
+
+        // Send the initial configuration message. When the server acknowledges
+        // it, start streaming the audio bytes to the server and listening for
+        // transcriptions.
+        this._socket.addEventListener('message', this._socketMessageCallback, {once: true});
+        const langCode = this._getViewerLanguageCode();
+        this._socket.send(JSON.stringify(
+            {
+                sampleRate: this._context.sampleRate,
+                phrases: this._phraseList,
+                locale: langCode
             }
-        };
+        ));
     }
 
     /**
-     * The key to load & store a target's text2speech state.
-     * @return {string} The key.
+     * Do setup so we can start streaming mic data.
+     * @private
      */
-    static get STATE_KEY () {
-        return 'Scratch.text2speech';
+    _startByteStream () {
+        // Hook up the scriptNode to the mic
+        this._sourceNode = this._context.createMediaStreamSource(this._micStream);
+        this._sourceNode.connect(this._scriptNode);
+        this._scriptNode.addEventListener('audioprocess', this._processAudioCallback);
+        this._scriptNode.connect(this._context.destination);
     }
 
     /**
-     * The default state, to be used when a target has no existing state.
-     * @type {Text2SpeechState}
+     * Called when we have data from the microphone. Takes that data and ships
+     * it off to the speech server for transcription.
+     * @param {audioProcessingEvent} e The event with audio data in it.
+     * @private
      */
-    static get DEFAULT_TEXT2SPEECH_STATE () {
-        return {
-            voiceId: ALTO_ID
-        };
+    _processAudioCallback (e) {
+        if (this._socket.readyState === WebSocket.CLOSED ||
+        this._socket.readyState === WebSocket.CLOSING) {
+            log.error(`Not sending data because not in ready state. State: ${this._socket.readyState}`);
+            // TODO: should we stop trying and reset state so it might work next time?
+            return;
+        }
+        const MAX_INT = Math.pow(2, 16 - 1) - 1;
+        const floatSamples = e.inputBuffer.getChannelData(0);
+        // The samples are floats in range [-1, 1]. Convert to 16-bit signed
+        // integer.
+        this._socket.send(Int16Array.from(floatSamples.map(n => n * MAX_INT)));
     }
 
     /**
-     * A default language to use for speech synthesis.
+     * The key to load & store a target's speech-related state.
      * @type {string}
      */
-    get DEFAULT_LANGUAGE () {
-        return ENGLISH_ID;
+    static get STATE_KEY () {
+        return 'Scratch.speech';
     }
 
     /**
-     * @param {Target} target - collect  state for this target.
-     * @returns {Text2SpeechState} the mutable state associated with that target. This will be created if necessary.
-     * @private
-     */
-    _getState (target) {
-        let state = target.getCustomState(Scratch3Text2SpeechBlocks.STATE_KEY);
-        if (!state) {
-            state = Clone.simple(Scratch3Text2SpeechBlocks.DEFAULT_TEXT2SPEECH_STATE);
-            target.setCustomState(Scratch3Text2SpeechBlocks.STATE_KEY, state);
-        }
-        return state;
-    }
-
-    /**
-     * When a Target is cloned, clone the state.
-     * @param {Target} newTarget - the newly created target.
-     * @param {Target} [sourceTarget] - the target used as a source for the new clone, if any.
-     * @listens Runtime#event:targetWasCreated
-     * @private
-     */
-    _onTargetCreated (newTarget, sourceTarget) {
-        if (sourceTarget) {
-            const state = sourceTarget.getCustomState(Scratch3Text2SpeechBlocks.STATE_KEY);
-            if (state) {
-                newTarget.setCustomState(Scratch3Text2SpeechBlocks.STATE_KEY, Clone.simple(state));
-            }
-        }
-    }
-
-    /**
-     * @returns {object} metadata for this extension and its blocks.
+     * @returns {object} Metadata for this extension and its blocks.
      */
     getInfo () {
-        // Only localize the default input to the "speak" block if we are in a
-        // supported language.
-        let defaultTextToSpeak = 'hello';
-        if (this.isSupportedLanguage(this.getEditorLanguage())) {
-            defaultTextToSpeak = formatMessage({
-                id: 'text2speech.defaultTextToSpeak',
-                default: 'hello',
-                description: 'hello: the default text to speak'
-            });
-        }
-
         return {
-            id: 'text2speech',
+            id: 'speech2text',
             name: formatMessage({
-                id: 'text2speech.categoryName',
-                default: 'Text to Speech',
-                description: 'Name of the Text to Speech extension.'
+                id: 'speech.extensionName',
+                default: 'Speech to Text',
+                description: 'Name of extension that adds speech recognition blocks.'
             }),
-            blockIconURI: blockIconURI,
             menuIconURI: menuIconURI,
+            blockIconURI: iconURI,
             blocks: [
                 {
-                    opcode: 'speakAndWait',
+                    opcode: 'listenAndWait',
                     text: formatMessage({
-                        id: 'text2speech.speakAndWaitBlock',
-                        default: 'speak [WORDS]',
-                        description: 'Speak some words.'
+                        id: 'speech.listenAndWait',
+                        default: 'listen and wait',
+                        // eslint-disable-next-line max-len
+                        description: 'Start listening to the microphone and wait for a result from the speech recognition system.'
                     }),
-                    blockType: BlockType.COMMAND,
+                    blockType: BlockType.COMMAND
+                },
+                {
+                    opcode: 'whenIHearHat',
+                    text: formatMessage({
+                        id: 'speech.whenIHear',
+                        default: 'when I hear [PHRASE]',
+                        // eslint-disable-next-line max-len
+                        description: 'Event that triggers when the text entered on the block is recognized by the speech recognition system.'
+                    }),
+                    blockType: BlockType.HAT,
                     arguments: {
-                        WORDS: {
+                        PHRASE: {
                             type: ArgumentType.STRING,
-                            defaultValue: defaultTextToSpeak
+                            defaultValue: formatMessage({
+                                id: 'speech.defaultWhenIHearValue',
+                                default: 'let\'s go',
+                                description: 'The default phrase/word that, when heard, triggers the event.'
+                            })
                         }
                     }
                 },
                 {
-                    opcode: 'setVoice',
+                    opcode: 'getSpeech',
                     text: formatMessage({
-                        id: 'text2speech.setVoiceBlock',
-                        default: 'set voice to [VOICE]',
-                        description: 'Set the voice for speech synthesis.'
+                        id: 'speech.speechReporter',
+                        default: 'speech',
+                        description: 'Get the text of spoken words transcribed by the speech recognition system.'
                     }),
-                    blockType: BlockType.COMMAND,
-                    arguments: {
-                        VOICE: {
-                            type: ArgumentType.STRING,
-                            menu: 'voices',
-                            defaultValue: ALTO_ID
-                        }
-                    }
-                },
-                {
-                    opcode: 'setLanguage',
-                    text: formatMessage({
-                        id: 'text2speech.setLanguageBlock',
-                        default: 'set language to [LANGUAGE]',
-                        description: 'Set the language for speech synthesis.'
-                    }),
-                    blockType: BlockType.COMMAND,
-                    arguments: {
-                        LANGUAGE: {
-                            type: ArgumentType.STRING,
-                            menu: 'languages',
-                            defaultValue: this.getCurrentLanguage()
-                        }
-                    }
+                    blockType: BlockType.REPORTER
                 }
-            ],
-            menus: {
-                voices: {
-                    acceptReporters: true,
-                    items: this.getVoiceMenu()
-                },
-                languages: {
-                    acceptReporters: true,
-                    items: this.getLanguageMenu()
-                }
-            }
+            ]
         };
     }
 
     /**
-     * Get the language code currently set in the editor, or fall back to the
-     * browser locale.
-     * @return {string} a Scratch locale code.
+     * Start the listening process if it isn't already in progress.
+     * @return {Promise} A promise that will resolve when listening is complete.
      */
-    getEditorLanguage () {
-        const locale = formatMessage.setup().locale ||
-            navigator.language || navigator.userLanguage || this.DEFAULT_LANGUAGE;
-        return locale.toLowerCase();
-    }
+    listenAndWait () {
+        this._phraseList = this._scanBlocksForPhraseList();
+        this._resetEdgeTriggerUtterance();
 
-    /**
-     * Get the language code currently set for the extension.
-     * @returns {string} a Scratch locale code.
-     */
-    getCurrentLanguage () {
-        const stage = this.runtime.getTargetForStage();
-        if (!stage) return this.DEFAULT_LANGUAGE;
-        // If no language has been set, set it to the editor locale (or default).
-        if (!stage.textToSpeechLanguage) {
-            this.setCurrentLanguage(this.getEditorLanguage());
-        }
-        return stage.textToSpeechLanguage;
-    }
-
-    /**
-     * Set the language code for the extension.
-     * It is stored in the stage so it can be saved and loaded with the project.
-     * @param {string} locale a locale code.
-     */
-    setCurrentLanguage (locale) {
-        const stage = this.runtime.getTargetForStage();
-        if (!stage) return;
-
-        if (this.isSupportedLanguage(locale)) {
-            stage.textToSpeechLanguage = this._getExtensionLocaleForSupportedLocale(locale);
-        }
-
-        // Support language names dropped onto the menu via reporter block
-        // such as a variable containing a language name (in any language),
-        // or the translate extension's language reporter.
-        const localeForDroppedName = languageNames.nameMap[locale.toLowerCase()];
-        if (localeForDroppedName && this.isSupportedLanguage(localeForDroppedName)) {
-            stage.textToSpeechLanguage =
-                this._getExtensionLocaleForSupportedLocale(localeForDroppedName);
-        }
-
-        // If the language is null, set it to the default language.
-        // This can occur e.g. if the extension was loaded with the editor
-        // set to a language that is not in the list.
-        if (!stage.textToSpeechLanguage) {
-            stage.textToSpeechLanguage = this.DEFAULT_LANGUAGE;
-        }
-    }
-
-    /**
-     * Get the extension locale for a supported locale, or null.
-     * @param {string} locale a locale code.
-     * @returns {?string} a locale supported by the extension.
-     */
-    _getExtensionLocaleForSupportedLocale (locale) {
-        for (const lang in this.LANGUAGE_INFO) {
-            if (this.LANGUAGE_INFO[lang].locales.includes(locale)) {
-                return lang;
+        const speechPromise = new Promise(resolve => {
+            const listeningInProgress = this._speechPromises.length > 0;
+            this._speechPromises.push(resolve);
+            if (!listeningInProgress) {
+                this._startListening();
             }
-        }
-        log.error(`cannot find extension locale for locale ${locale}`);
-    }
-
-    /**
-     * Get the locale code used by the speech synthesis server corresponding to
-     * the current language code set for the extension.
-     * @returns {string} a speech synthesis locale.
-     */
-    _getSpeechSynthLocale () {
-        let speechSynthLocale = this.LANGUAGE_INFO[this.DEFAULT_LANGUAGE].speechSynthLocale;
-        if (this.LANGUAGE_INFO[this.getCurrentLanguage()]) {
-            speechSynthLocale = this.LANGUAGE_INFO[this.getCurrentLanguage()].speechSynthLocale;
-        }
-        return speechSynthLocale;
-    }
-
-    /**
-     * Get an array of the locales supported by this extension.
-     * @returns {Array} An array of locale strings.
-     */
-    _getSupportedLocales () {
-        return Object.keys(this.LANGUAGE_INFO).reduce((acc, lang) =>
-            acc.concat(this.LANGUAGE_INFO[lang].locales), []);
-    }
-
-    /**
-     * Check if a Scratch language code is in the list of supported languages for the
-     * speech synthesis service.
-     * @param {string} languageCode the language code to check.
-     * @returns {boolean} true if the language code is supported.
-     */
-    isSupportedLanguage (languageCode) {
-        return this._supportedLocales.includes(languageCode);
-    }
-
-    /**
-     * Get the menu of voices for the "set voice" block.
-     * @return {array} the text and value for each menu item.
-     */
-    getVoiceMenu () {
-        return Object.keys(this.VOICE_INFO).map(voiceId => ({
-            text: this.VOICE_INFO[voiceId].name,
-            value: voiceId
-        }));
-    }
-
-    /**
-     * Get the localized menu of languages for the "set language" block.
-     * For each language:
-     *   if there is a custom translated spoken language name, use that;
-     *   otherwise use the translation in the languageNames menuMap;
-     *   otherwise fall back to the untranslated name in LANGUAGE_INFO.
-     * @return {array} the text and value for each menu item.
-     */
-    getLanguageMenu () {
-        const editorLanguage = this.getEditorLanguage();
-        // Get the array of localized language names
-        const localizedNameMap = {};
-        let nameArray = languageNames.menuMap[editorLanguage];
-        if (nameArray) {
-            // Also get any localized names of spoken languages
-            let spokenNameArray = [];
-            if (languageNames.spokenLanguages) {
-                spokenNameArray = languageNames.spokenLanguages[editorLanguage];
-                nameArray = nameArray.concat(spokenNameArray);
-            }
-            // Create a map of language code to localized name
-            // The localized spoken language names have been concatenated onto
-            // the end of the name array, so the result of the forEach below is
-            // when there is both a written language name (e.g. 'Chinese
-            // (simplified)') and a spoken language name (e.g. 'Chinese
-            // (Mandarin)', we always use the spoken version.
-            nameArray.forEach(lang => {
-                localizedNameMap[lang.code] = lang.name;
-            });
-        }
-
-        return Object.keys(this.LANGUAGE_INFO).map(key => {
-            let name = this.LANGUAGE_INFO[key].name;
-            const localizedName = localizedNameMap[key];
-            if (localizedName) {
-                name = localizedName;
-            }
-            // Uppercase the first character of the name
-            name = name.charAt(0).toUpperCase() + name.slice(1);
-            return {
-                text: name,
-                value: key
-            };
         });
+        return speechPromise;
     }
 
     /**
-     * Set the voice for speech synthesis for this sprite.
-     * @param  {object} args Block arguments
-     * @param {object} util Utility object provided by the runtime.
+     * An edge triggered hat block to listen for a specific phrase.
+     * @param {object} args - the block arguments.
+     * @return {boolean} true if the phrase matches what was transcribed.
      */
-    setVoice (args, util) {
-        const state = this._getState(util.target);
-
-        let voice = args.VOICE;
-
-        // If the arg is a dropped number, treat it as a voice index
-        let voiceNum = parseInt(voice, 10);
-        if (!isNaN(voiceNum)) {
-            voiceNum -= 1; // Treat dropped args as one-indexed
-            voiceNum = MathUtil.wrapClamp(voiceNum, 0, Object.keys(this.VOICE_INFO).length - 1);
-            voice = Object.keys(this.VOICE_INFO)[voiceNum];
-        }
-
-        // Only set the voice if the arg is a valid voice id.
-        if (Object.keys(this.VOICE_INFO).includes(voice)) {
-            state.voiceId = voice;
-        }
+    whenIHearHat (args) {
+        return this._speechMatches(args.PHRASE, this._utteranceForEdgeTrigger);
     }
 
     /**
-     * Set the language for speech synthesis.
-     * @param  {object} args Block arguments
+     * Reporter for the last heard phrase/utterance.
+     * @return {string} The lastest thing we heard from a listen and wait block.
      */
-    setLanguage (args) {
-        this.setCurrentLanguage(args.LANGUAGE);
-    }
-
-    /**
-     * Stop all currently playing speech sounds.
-     */
-    _stopAllSpeech () {
-        this._soundPlayers.forEach(player => {
-            player.stop();
-        });
-    }
-
-    /**
-     * Convert the provided text into a sound file and then play the file.
-     * @param  {object} args Block arguments
-     * @param {object} util Utility object provided by the runtime.
-     * @return {Promise} A promise that resolves after playing the sound
-     */
-    speakAndWait (args, util) {
-        // Cast input to string
-        let words = Cast.toString(args.WORDS);
-        let locale = this._getSpeechSynthLocale();
-
-        const state = this._getState(util.target);
-
-        let gender = this.VOICE_INFO[state.voiceId].gender;
-        let playbackRate = this.VOICE_INFO[state.voiceId].playbackRate;
-
-        // Special case for voices where the synthesis service only provides a
-        // single gender voice. In that case, always request the female voice,
-        // and set special playback rates for the tenor and giant voices.
-        if (this.LANGUAGE_INFO[this.getCurrentLanguage()].singleGender) {
-            gender = 'female';
-            if (state.voiceId === TENOR_ID) {
-                playbackRate = FEMALE_TENOR_RATE;
-            }
-            if (state.voiceId === GIANT_ID) {
-                playbackRate = FEMALE_GIANT_RATE;
-            }
-        }
-
-        if (state.voiceId === KITTEN_ID) {
-            words = words.replace(/\S+/g, 'meow');
-            locale = this.LANGUAGE_INFO[this.DEFAULT_LANGUAGE].speechSynthLocale;
-        }
-
-        // Build up URL
-        let path = `${SERVER_HOST}/synth`;
-        path += `?locale=${locale}`;
-        path += `&gender=${gender}`;
-        path += `&text=${encodeURIComponent(words.substring(0, 128))}`;
-
-        // Perform HTTP request to get audio file
-        return fetchWithTimeout(path, {}, SERVER_TIMEOUT)
-            .then(res => {
-                if (res.status !== 200) {
-                    throw new Error(`HTTP ${res.status} error reaching translation service`);
-                }
-
-                return res.arrayBuffer();
-            })
-            .then(buffer => {
-                // Play the sound
-                const sound = {
-                    data: {
-                        buffer
-                    }
-                };
-                return this.runtime.audioEngine.decodeSoundPlayer(sound);
-            })
-            .then(soundPlayer => {
-                this._soundPlayers.set(soundPlayer.id, soundPlayer);
-
-                soundPlayer.setPlaybackRate(playbackRate);
-
-                // Increase the volume
-                const engine = this.runtime.audioEngine;
-                const chain = engine.createEffectChain();
-                chain.set('volume', SPEECH_VOLUME);
-                soundPlayer.connect(chain);
-
-                soundPlayer.play();
-                return new Promise(resolve => {
-                    soundPlayer.on('stop', () => {
-                        this._soundPlayers.delete(soundPlayer.id);
-                        resolve();
-                    });
-                });
-            })
-            .catch(err => {
-                log.warn(err);
-            });
+    getSpeech () {
+        return this._currentUtterance;
     }
 }
-module.exports = Scratch3Text2SpeechBlocks;
+module.exports = Scratch3Speech2TextBlocks;
+
